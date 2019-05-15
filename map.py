@@ -4,66 +4,99 @@ passar + un param: https://github.com/JosepSampe/pywren-ibm-cloud/blob/master/ex
 import pywren_ibm_cloud as pywren
 import random
 import pika
-import json, os
-identificadors = 2
+import os
+import sys
+import json
 
-def tasca2_funcio(identificador, N): #identificador, N: Total valors
-    pw_config=json.loads(os.environ.get('PYWREN_CONFIG',''))
+def master(N):
+    '''
+    :N Numero total de maps
+    '''
+    global comptador
+    global v
+    comptador=0
+    pw_config = json.loads(os.environ.get('PYWREN_CONFIG', ''))
     urlAMQP=pw_config['rabbitmq']['amqp_url']
-    print(urlAMQP)
+    params=pika.URLParameters(urlAMQP)
+    connection = pika.BlockingConnection(params)
+    channel = connection.channel()
+    channel.queue_declare('cua'+str(0))
+    channel.queue_bind(exchange='logs',queue='cua'+str(0))
+    v=(int)(random.random() * N + 1)
+    channel.basic_publish(exchange='', routing_key='cua'+str(v), body='start')
+    def callback(ch, method, properties, body):
+        comptador=comptador+1
+        if comptador == N:
+            channel.basic_publish(exchange='logs', routing_key='', body='stop')
+            channel.stop_consuming()
+        else:
+            v=(int)(random.random() * N + 1)
+            channel.basic_publish(exchange='', routing_key='cua'+str(v), body='start')
+    channel.basic_consume(callback, queue='cua'+str(0), no_ack=True)
+    channel.start_consuming()
+    channel.close()
+
+def slave(identificador): 
+    '''
+    :identificador id de la funcio
+    '''
+    global resultat
+    global v
     resultat=[]
-    if identificador == 0:
-        params=pika.URLParameters(urlAMQP)
-        connection = pika.BlockingConnection(params)
-        channel = connection.channel()
-        channel.exchange_declare(exchange='logs', exchange_type='fanout')
-        rand=(int)(random.random() * N + 1)
-        message = "7"+str(rand)
-        channel.basic_publish(exchange='logs', routing_key='', body=str(identificador))
-        channel.basic_publish(exchange='logs', routing_key='', body=str(N))
-        channel.basic_publish(exchange='logs', routing_key='', body="8")
-        print(" [x] Sent %r" % message)
-        connection.close()
+    pw_config = json.loads(os.environ.get('PYWREN_CONFIG', ''))
+    urlAMQP=pw_config['rabbitmq']['amqp_url']
+    params=pika.URLParameters(urlAMQP)
+    connection = pika.BlockingConnection(params)
+    channel = connection.channel()
+    channel.queue_declare('cua'+str(identificador))
+    channel.queue_bind(exchange='logs',queue='cua'+str(identificador))
     
+       
+    def callback(ch, method, properties, body):
+        primer_missatge=body.decode("latin1")
+        if primer_missatge == 'start':
+            #soc el elegit           
+            v=(int)(random.random() * 100 + 1)
+            resultat.append(v)
+            channel.basic_publish(exchange='logs', routing_key='', body=str(v))
+        elif primer_missatge =='stop':
+            channel.stop_consuming()
+        elif str.isdigit(primer_missatge):
+            resultat.append(v)
+    channel.basic_consume(callback, queue='cua'+str(identificador), no_ack=True)
+    channel.start_consuming()
+    channel.close()
+
+if __name__ == '__main__':
+    if len(sys.argv) == 2:
+        if int(sys.argv[1]) <= 0:
+            print("S'ha detectat un valor negatiu o zero, no es pot fer res.")
+            sys.exit(-1)
+        else:
+            num_esclaus=int(sys.argv[1])
+            iterdata=[]
+            i=0
+            while i<num_esclaus:
+                param=[str(i+1)]
+                iterdata.append(param)
+                i+=1
+            pw = pywren.ibm_cf_executor(rabbitmq_monitor=True) #rabbitmq_monitor=True
+            urlAMQP=pw.config['rabbitmq']['amqp_url']
+            print(urlAMQP)
+            input()
+            params=pika.URLParameters(urlAMQP)
+            connection = pika.BlockingConnection(params)
+            channel = connection.channel()
+            channel.exchange_declare(exchange='logs', exchange_type='fanout')
+            pw = pywren.ibm_cf_executor(rabbitmq_monitor=True) #rabbitmq_monitor=True
+            
+            
+            pw.call_async(master, num_esclaus)
+
+            pw=pywren.ibm_cf_executor(rabbitmq_monitor=True)
+            pw.map(slave, iterdata)
+            #pw.create_timeline_plots('path_on_vull_que_es_guardi', 'nom_fitxer')
+            pw.monitor()
+            print(pw.get_result())
     else:
-        params=pika.URLParameters(urlAMQP)
-        connection = pika.BlockingConnection(params)
-        channel = connection.channel()
-        
-        channel.exchange_declare(exchange='logs', exchange_type='fanout')
-        
-        channel.queue_declare('cua'+str(identificador)) #, exclusive=True
-        queue_name = 'cua'+str(identificador)
-        channel.queue_bind(exchange='logs', queue=queue_name)
-        
-        def callback(ch, method, properties, body):
-            num=body.decode("latin1")
-            num=int(num)
-            resultat.append(num)
-            if num == 8:
-                channel.stop_consuming()
-        
-        channel.basic_consume(callback, queue=queue_name, no_ack=True) #, no_ack=True
-        channel.start_consuming()
-        #channel.start_consuming()
-        connection.close()
-    return resultat
-
-
-
-v=list(range(identificadors)) #comensa per el identificador 0!!
-
-
-iterdata=[]
-i=0
-while i<identificadors:
-    param={'identificador':i, 'N':identificadors}
-    iterdata.append(param)
-    i+=1
-print (iterdata)
-input()
-pw = pywren.ibm_cf_executor(rabbitmq_monitor=True) #rabbitmq_monitor=True
-pw.map(tasca2_funcio, iterdata)
-#pw.create_timeline_plots('path_on_vull_que_es_guardi', 'nom_fitxer')
-pw.monitor()
-print(pw.get_result())
+        print("USAGE: map.py <num_maps>") 
