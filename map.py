@@ -14,6 +14,7 @@ def master(N):
     '''
     global comptador
     global v
+    v=0
     comptador=0
     pw_config = json.loads(os.environ.get('PYWREN_CONFIG', ''))
     urlAMQP=pw_config['rabbitmq']['amqp_url']
@@ -25,6 +26,8 @@ def master(N):
     v=(int)(random.random() * N + 1)
     channel.basic_publish(exchange='', routing_key='cua'+str(v), body='start')
     def callback(ch, method, properties, body):
+        global comptador
+        global v
         comptador=comptador+1
         if comptador == N:
             channel.basic_publish(exchange='logs', routing_key='', body='stop')
@@ -43,6 +46,7 @@ def slave(identificador):
     global resultat
     global v
     resultat=[]
+    v=0
     pw_config = json.loads(os.environ.get('PYWREN_CONFIG', ''))
     urlAMQP=pw_config['rabbitmq']['amqp_url']
     params=pika.URLParameters(urlAMQP)
@@ -53,6 +57,8 @@ def slave(identificador):
     
        
     def callback(ch, method, properties, body):
+        global resultat
+        global v
         primer_missatge=body.decode("latin1")
         if primer_missatge == 'start':
             #soc el elegit           
@@ -66,6 +72,7 @@ def slave(identificador):
     channel.basic_consume(callback, queue='cua'+str(identificador), no_ack=True)
     channel.start_consuming()
     channel.close()
+    return resultat
 
 if __name__ == '__main__':
     if len(sys.argv) == 2:
