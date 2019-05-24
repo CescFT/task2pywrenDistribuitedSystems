@@ -26,11 +26,13 @@ def master(N):
     params=pika.URLParameters(urlAMQP)
     connection = pika.BlockingConnection(params)
     channel = connection.channel()
-    channel.queue_declare('cua'+str(000))
-    channel.queue_bind(exchange='logs',queue='cua'+str(000))
+    channel.queue_declare('cua0')
+    channel.queue_bind(exchange='logs',queue='cua0')
     v=(int)(random.random() * N + 1)
-    channel.basic_publish(exchange='', routing_key='cua'+str(v), body='start')
+    #v = 1
+    channel.basic_publish(exchange='', routing_key=f'cua{v}', body='start')
     print(f'master msg send {v}')
+
     def callback(ch, method, properties, body):
         bodyr = body.decode('latin1')
         print(f'master received {bodyr}')
@@ -44,9 +46,10 @@ def master(N):
         else:
             v=(int)(random.random() * N + 1)
             print(v)
-            channel.basic_publish(exchange='', routing_key='cua'+str(v), body='start')
+            channel.basic_publish(exchange='', routing_key=f'cua{v}', body='start')
             print(f'master msg sent start {v}')
-    channel.basic_consume(callback, queue='cua'+str(000), no_ack=True)
+
+    channel.basic_consume(callback, queue='cua0', no_ack=True)
     channel.start_consuming()
     channel.close()
 
@@ -65,8 +68,8 @@ def slave(identificador):
     params=pika.URLParameters(urlAMQP)
     connection = pika.BlockingConnection(params)
     channel = connection.channel()
-    channel.queue_declare('cua'+str(identificador)+'a')
-    channel.queue_bind(exchange='logs',queue='cua'+str(identificador)+'a')
+    channel.queue_declare(f'cua{identificador}')
+    channel.queue_bind(exchange='logs',queue=f'cua{identificador}')
     
        
     def callback(ch, method, properties, body):
@@ -88,7 +91,7 @@ def slave(identificador):
             print(f'{id} received {primer_missatge}')
             resultat.append(primer_missatge)
             
-    channel.basic_consume(callback, queue='cua'+str(identificador)+'a', no_ack=True)
+    channel.basic_consume(callback, queue=f'cua{identificador}', no_ack=True)
     channel.start_consuming()
     channel.close()
     return resultat
