@@ -8,6 +8,11 @@ import os
 import sys
 import json
 
+comptador = None
+v = None
+resultat = []
+global id
+
 def master(N):
     '''
     :N Numero total de maps
@@ -25,16 +30,20 @@ def master(N):
     channel.queue_bind(exchange='logs',queue='cua'+str(0))
     v=(int)(random.random() * N + 1)
     channel.basic_publish(exchange='', routing_key='cua'+str(v), body='start')
+    print('master msg send')
     def callback(ch, method, properties, body):
         global comptador
         global v
         comptador=comptador+1
         if comptador == N:
             channel.basic_publish(exchange='logs', routing_key='', body='stop')
+            print('master msg sent stop')
             channel.stop_consuming()
         else:
             v=(int)(random.random() * N + 1)
+            print(v)
             channel.basic_publish(exchange='', routing_key='cua'+str(v), body='start')
+            print('master msg sent start')
     channel.basic_consume(callback, queue='cua'+str(0), no_ack=True)
     channel.start_consuming()
     channel.close()
@@ -43,8 +52,10 @@ def slave(identificador):
     '''
     :identificador id de la funcio
     '''
-    global resultat
     global v
+    global resultat
+    global id
+    id = identificador
     resultat=[]
     v=0
     pw_config = json.loads(os.environ.get('PYWREN_CONFIG', ''))
@@ -57,18 +68,24 @@ def slave(identificador):
     
        
     def callback(ch, method, properties, body):
-        global resultat
         global v
+        global resultat
+        global id
         primer_missatge=body.decode("latin1")
         if primer_missatge == 'start':
             #soc el elegit           
             v=(int)(random.random() * 100 + 1)
-            resultat.append(v)
+            print(f'{id} sends {v}')
+#             resultat.append(v)
             channel.basic_publish(exchange='logs', routing_key='', body=str(v))
+            channel.basic_publish(exchange='', routing_key='cua'+str(0), body=str(v))
         elif primer_missatge =='stop':
+#             channel.basic_publish(exchange='logs', routing_key='', body='stop')
             channel.stop_consuming()
         elif str.isdigit(primer_missatge):
-            resultat.append(v)
+            print(f'{id} received {primer_missatge}')
+            resultat.append(primer_missatge)
+            
     channel.basic_consume(callback, queue='cua'+str(identificador), no_ack=True)
     channel.start_consuming()
     channel.close()
@@ -89,8 +106,6 @@ if __name__ == '__main__':
                 i+=1
             pw = pywren.ibm_cf_executor(rabbitmq_monitor=True) #rabbitmq_monitor=True
             urlAMQP=pw.config['rabbitmq']['amqp_url']
-            print(urlAMQP)
-            input()
             params=pika.URLParameters(urlAMQP)
             connection = pika.BlockingConnection(params)
             channel = connection.channel()
