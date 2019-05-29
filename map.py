@@ -79,7 +79,7 @@ def slave(identifier):
             channel.queue_delete(queue=f'cua{identifier}')
         else:
             print(f'{id} received {message}')
-            result.append(message)
+            result.append((int)(message))
             
     channel.basic_consume(callback, queue=f'cua{identifier}', no_ack=True)
     channel.start_consuming()
