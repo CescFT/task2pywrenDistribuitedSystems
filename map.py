@@ -1,5 +1,9 @@
 '''
-passar + un param: https://github.com/JosepSampe/pywren-ibm-cloud/blob/master/examples/multiple_parameters_call_async.py
+Francesc Ferre Tarres
+Eric Pi Esteban
+Aleix Sancho Pujals
+
+29/05/2019
 '''
 import pywren_ibm_cloud as pywren
 import random
@@ -8,19 +12,16 @@ import os
 import sys
 import json
 
-comptador = None
-v = None
-resultat = []
+cont = None
+random_number = None
+result = []
 global id
 
-def master(N):
-    '''
-    :N Numero total de maps
-    '''
-    global comptador
-    global v
-    v=0
-    comptador=0
+def master(total_slaves):
+    global cont
+    global random_number
+    random_number = 0
+    cont = 1
     pw_config = json.loads(os.environ.get('PYWREN_CONFIG', ''))
     urlAMQP=pw_config['rabbitmq']['amqp_url']
     params=pika.URLParameters(urlAMQP)
@@ -28,73 +29,62 @@ def master(N):
     channel = connection.channel()
     channel.queue_declare('cua0')
     channel.queue_bind(exchange='logs',queue='cua0')
-    v=(int)(random.random() * N + 1)
-    #v = 1
-    channel.basic_publish(exchange='', routing_key=f'cua{v}', body='start')
-    print(f'master msg send {v}')
+    random_number=(int)(random.random() * total_slaves + 1)
+    channel.basic_publish(exchange='', routing_key=f'cua{random_number}', body='start')
 
     def callback(ch, method, properties, body):
-        bodyr = body.decode('latin1')
-        print(f'master received {bodyr}')
-        global comptador
-        global v
-        comptador=comptador+1
-        if comptador == N:
-            channel.basic_publish(exchange='logs', routing_key='', body='stop')
-            print('master msg sent stop')
+        global cont
+        global random_number
+        i = 1
+        if cont == total_slaves:
+            while i <= total_slaves:
+                channel.basic_publish(exchange='', routing_key=f'cua{i}', body='stop')
+                i+=1
             channel.stop_consuming()
         else:
-            v=(int)(random.random() * N + 1)
-            print(v)
-            channel.basic_publish(exchange='', routing_key=f'cua{v}', body='start')
-            print(f'master msg sent start {v}')
-
+            if random_number >= total_slaves:
+                random_number = 0
+            random_number = random_number + 1
+            channel.basic_publish(exchange='', routing_key=f'cua{random_number}', body='start')
+        cont = cont+1
     channel.basic_consume(callback, queue='cua0', no_ack=True)
     channel.start_consuming()
     channel.close()
 
-def slave(identificador): 
-    '''
-    :identificador id de la funcio
-    '''
-    global v
-    global resultat
+def slave(identifier):
+    global random_number
+    global result
     global id
-    id = identificador
-    resultat=[]
-    v=0
+    id = identifier
+    result=[]
+    random_number=0
     pw_config = json.loads(os.environ.get('PYWREN_CONFIG', ''))
     urlAMQP=pw_config['rabbitmq']['amqp_url']
     params=pika.URLParameters(urlAMQP)
     connection = pika.BlockingConnection(params)
     channel = connection.channel()
-    channel.queue_declare(f'cua{identificador}')
-    channel.queue_bind(exchange='logs',queue=f'cua{identificador}')
+    channel.queue_declare(f'cua{identifier}')
+    channel.queue_bind(exchange='logs', queue=f'cua{identifier}')
     
-       
     def callback(ch, method, properties, body):
-        global v
-        global resultat
+        global random_number
+        global result
         global id
-        primer_missatge=body.decode("latin1")
-        print(f'msg: {primer_missatge}')
-        if primer_missatge == 'start':
-            #soc el elegit           
-            v=(int)(random.random() * 100 + 1)
-            print(f'{id} sends {v}')
-#             resultat.append(v)
-            channel.basic_publish(exchange='logs', routing_key='', body=str(v))
-        elif primer_missatge =='stop':
-#             channel.basic_publish(exchange='logs', routing_key='', body='stop')
+        message = body.decode("latin1")
+        if message == 'start':       
+            random_number=(int)(random.random() * 100 + 1)
+            channel.basic_publish(exchange='logs', routing_key='', body=str(random_number))
+        elif message == 'stop':
             channel.stop_consuming()
-        elif str.isdigit(primer_missatge):
-            print(f'{id} received {primer_missatge}')
-            resultat.append(primer_missatge)
+            channel.queue_delete(queue=f'cua{identifier}')
+        else:
+            print(f'{id} received {message}')
+            result.append(message)
             
-    channel.basic_consume(callback, queue=f'cua{identificador}', no_ack=True)
+    channel.basic_consume(callback, queue=f'cua{identifier}', no_ack=True)
     channel.start_consuming()
     channel.close()
-    return resultat
+    return result
 
 if __name__ == '__main__':
     if len(sys.argv) == 2:
@@ -102,28 +92,27 @@ if __name__ == '__main__':
             print("S'ha detectat un valor negatiu o zero, no es pot fer res.")
             sys.exit(-1)
         else:
-            num_esclaus=int(sys.argv[1])
-            iterdata=[]
-            i=0
-            while i<num_esclaus:
-                param=[str(i+1)]
+            max_slaves = int(sys.argv[1])
+            iterdata = []
+            i = 0
+            while i < max_slaves:
+                param = [str(i+1)]
                 iterdata.append(param)
-                i+=1
+                i = i + 1
             pw = pywren.ibm_cf_executor(rabbitmq_monitor=True) #rabbitmq_monitor=True
-            urlAMQP=pw.config['rabbitmq']['amqp_url']
-            params=pika.URLParameters(urlAMQP)
+            urlAMQP = pw.config['rabbitmq']['amqp_url']
+            params = pika.URLParameters(urlAMQP)
             connection = pika.BlockingConnection(params)
             channel = connection.channel()
             channel.exchange_declare(exchange='logs', exchange_type='fanout')
-            pw = pywren.ibm_cf_executor(rabbitmq_monitor=True) #rabbitmq_monitor=True
-            
-            
-            pw.call_async(master, num_esclaus)
-
             pw=pywren.ibm_cf_executor(rabbitmq_monitor=True)
             pw.map(slave, iterdata)
-            #pw.create_timeline_plots('path_on_vull_que_es_guardi', 'nom_fitxer')
+            
+            pw2 = pywren.ibm_cf_executor(rabbitmq_monitor=True) #rabbitmq_monitor=True
+            pw2.call_async(master, max_slaves)
+
             pw.monitor()
             print(pw.get_result())
+            channel.queue_delete(queue='cua0')
     else:
-        print("USAGE: map.py <num_maps>") 
+        print("USAGE: map.py <num_maps>")
