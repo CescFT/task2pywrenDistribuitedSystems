@@ -31,7 +31,6 @@ def master(total_slaves):
     channel.queue_bind(exchange='logs',queue='cua0')
     random_number=(int)(random.random() * total_slaves + 1)
     channel.basic_publish(exchange='', routing_key=f'cua{random_number}', body='start')
-
     def callback(ch, method, properties, body):
         global cont
         global random_number
@@ -39,6 +38,7 @@ def master(total_slaves):
         if cont == total_slaves:
             while i <= total_slaves:
                 channel.basic_publish(exchange='', routing_key=f'cua{i}', body='stop')
+                print(f'master send to {i} slave stop message')
                 i+=1
             channel.stop_consuming()
         else:
@@ -46,8 +46,10 @@ def master(total_slaves):
                 random_number = 0
             random_number = random_number + 1
             channel.basic_publish(exchange='', routing_key=f'cua{random_number}', body='start')
+            print(f'master send to cua{random_number} start message')
         cont = cont+1
     channel.basic_consume(callback, queue='cua0', no_ack=True)
+    print(f'master send start to cua{random_number} and start consuming from cua0')
     channel.start_consuming()
     channel.close()
 
@@ -65,7 +67,7 @@ def slave(identifier):
     channel = connection.channel()
     channel.queue_declare(f'cua{identifier}')
     channel.queue_bind(exchange='logs', queue=f'cua{identifier}')
-    
+    print(f'slave bind his cua{identifier} to exchange')
     def callback(ch, method, properties, body):
         global random_number
         global result
@@ -74,7 +76,9 @@ def slave(identifier):
         if message == 'start':       
             random_number=(int)(random.random() * 100 + 1)
             channel.basic_publish(exchange='logs', routing_key='', body=str(random_number))
+            print(f'slave received start message and pubish to exchange {random_number} to save into list')
         elif message == 'stop':
+            print(f'slave received stop message')
             channel.stop_consuming()
             channel.queue_delete(queue=f'cua{identifier}')
         else:
@@ -82,6 +86,7 @@ def slave(identifier):
             result.append((int)(message))
             
     channel.basic_consume(callback, queue=f'cua{identifier}', no_ack=True)
+    print(f'slave starts consuming from cua{identifier}')
     channel.start_consuming()
     channel.close()
     return result
